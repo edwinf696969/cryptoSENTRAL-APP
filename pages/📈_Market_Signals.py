@@ -38,6 +38,7 @@ def plot_momentum_bar_chart(df):
     plot_df = latest_data[latest_data['symbol'].isin(top_symbols)]
 
     # FIX: Melt the dataframe to have a long format for Plotly Express
+    # and use the correct column names from the Part A script.
     plot_df_melted = plot_df.melt(
         id_vars='symbol',
         value_vars=['momentum_14d', 'momentum_42d'],
