@@ -149,14 +149,6 @@ st.markdown("""
     <style>
         .main { background-color: #030712; }
         h1, h2, h3, h4 { color: #F9FAFB; }
-        /* Style for the cards */
-        .card {
-            background-color: #111827; 
-            border: 1px solid #374151;
-            border-radius: 0.75rem; 
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -181,21 +173,16 @@ gemini_summary = get_gemini_summary(latest_sentiment_score)
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+    with st.container(border=True):
         st.subheader("Market Sentiment Gauge")
         st.plotly_chart(create_fear_greed_gauge(latest_sentiment_score), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+    with st.container(border=True):
         st.subheader("Gemini Analyst Summary")
         st.info(gemini_summary)
-        st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
-    with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+    with st.container(border=True):
         st.subheader("Market Sentiment Over Time")
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -209,7 +196,6 @@ with col2:
             legend=dict(font=dict(color='white')), height=400
         )
         st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
 st.subheader("Raw News Data Explorer")
