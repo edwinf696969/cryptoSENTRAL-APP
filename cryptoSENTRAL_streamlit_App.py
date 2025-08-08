@@ -1,3 +1,20 @@
+"""
+CryptoSENTRAL: Streamlit Web Application
+
+This script creates the interactive web dashboard for the FINS3645 project,
+designed for deployment on Streamlit Community Cloud.
+
+- Station 3:
+  - Implements VADER sentiment analysis on processed news data.
+  - Constructs sentiment indices.
+- Station 4:
+  - Implements and displays the backtest results of a sentiment-based strategy.
+  - Integrates with the Google Gemini API for live sentiment summaries.
+
+Author: Edwin Forouzandeh z5417615
+Date:   August 8, 2025
+"""
+
 # ===========================================================================
 # 1. IMPORT LIBRARIES AND INITIAL SETUP
 # ===========================================================================
