@@ -12,19 +12,20 @@ import plotly.graph_objects as go
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="CryptoSENTRAL Dashboard",
+    page_title="CryptoSENTRAL | Market Sentiment",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="collapsed"
 )
 
 # ===========================================================================
 # 2. EMBEDDED VADER LEXICON AND SENTIMENT LOGIC
-# This section makes the script self-contained and removes the need for NLTK.
+# This section makes the script self-contained and removes the need for NLTK downloads.
 # ===========================================================================
 
 def get_vader_lexicon():
     """Returns a subset of the VADER sentiment lexicon as a Python dictionary."""
+    # This is a curated subset of the full VADER lexicon, focusing on common
+    # and financially relevant terms to keep the script manageable.
     return {
         'positive': 2.0, 'trust': 1.5, 'good': 1.9, 'great': 3.1, 'excellent': 3.4,
         'amazing': 4.0, 'fantastic': 4.0, 'love': 3.2, 'like': 2.0, 'happy': 2.7,
@@ -36,7 +37,7 @@ def get_vader_lexicon():
         'fraud': -2.5, 'hack': -2.0, 'stolen': -2.2, 'illegal': -2.6, 'ban': -2.6,
         'fear': -1.7, 'uncertainty': -1.4, 'doubt': -1.1, 'fud': -2.0, 'hodl': 0.5,
         'moon': 2.5, 'diamond hands': 2.0, 'paper hands': -1.5, 'shill': -1.0,
-        'not': -1, 'no': -1, 'never': -1,
+        'not': -1, 'no': -1, 'never': -1, 'without': -1, 'isnt': -1,
     }
 
 def get_simple_vader_score(text: str, lexicon: dict) -> float:
@@ -52,7 +53,7 @@ def get_simple_vader_score(text: str, lexicon: dict) -> float:
     for i, word in enumerate(words):
         word_score = lexicon.get(word, 0.0)
         # Simple negation check (looks at the previous word)
-        if i > 0 and words[i-1] in ['not', 'no', 'never']:
+        if i > 0 and words[i-1] in ['not', 'no', 'never', 'without']:
             word_score *= -0.74
         score += word_score
         
@@ -81,79 +82,34 @@ def load_data():
     return structured_df, unstructured_df
 
 # ===========================================================================
-# 4. STATION 3: SENTIMENT ANALYSIS (Cached)
+# 4. SENTIMENT ANALYSIS (Cached)
 # ===========================================================================
 
 @st.cache_data
 def run_sentiment_pipeline(unstructured_df):
-    """Runs sentiment analysis and constructs sentiment indices."""
-    st.info("Running sentiment analysis on news data...")
+    """Runs sentiment analysis using the embedded lexicon and constructs indices."""
+    progress_bar = st.progress(0, text="Analyzing news sentiment...")
     lexicon = get_vader_lexicon()
     
     # Use the simplified, self-contained VADER scoring function
-    unstructured_df['compound'] = unstructured_df['normalized_text'].apply(lambda x: get_simple_vader_score(x, lexicon))
+    total_rows = len(unstructured_df)
+    compounds = []
+    for i, text in enumerate(unstructured_df['normalized_text']):
+        compounds.append(get_simple_vader_score(text, lexicon))
+        progress_bar.progress((i + 1) / total_rows)
+    
+    unstructured_df['compound'] = compounds
+    progress_bar.empty()
     
     df = unstructured_df.copy()
     df['date'] = pd.to_datetime(df['date'])
     market_sentiment = df.set_index('date')['compound'].resample('D').mean().rolling(window=7, min_periods=1).mean()
     market_sentiment.name = "market_sentiment_7d"
-
-    asset_sentiment = pd.DataFrame()
-    if 'mentioned_symbols' in df.columns:
-        df_exploded = df.dropna(subset=['mentioned_symbols']).copy()
-        df_exploded['mentioned_symbols'] = df_exploded['mentioned_symbols'].str.split(',')
-        df_exploded = df_exploded.explode('mentioned_symbols')
-        df_exploded['mentioned_symbols'] = df_exploded['mentioned_symbols'].str.strip().str.upper()
-        asset_sentiment_raw = df_exploded.groupby(['date', 'mentioned_symbols'])['compound'].mean().unstack()
-        asset_sentiment = asset_sentiment_raw.rolling(window=7, min_periods=1).mean()
     
-    return market_sentiment, asset_sentiment
+    return market_sentiment
 
 # ===========================================================================
-# 5. STATION 4: BACKTESTING (Cached)
-# ===========================================================================
-
-@st.cache_data
-def run_backtest(structured_df, asset_sentiment):
-    """Runs the sentiment-driven backtest."""
-    if asset_sentiment.empty:
-        return None
-
-    weekly_returns = structured_df.pivot_table(index='date', columns='symbol', values='return')
-    portfolio_returns = []
-    
-    for date in weekly_returns.index:
-        sentiment_date = date - pd.Timedelta(days=1)
-        if sentiment_date not in asset_sentiment.index:
-            portfolio_returns.append(0)
-            continue
-            
-        last_sentiment = asset_sentiment.loc[sentiment_date].dropna()
-        if len(last_sentiment) < 20:
-            portfolio_returns.append(0)
-            continue
-            
-        top_10 = last_sentiment.nlargest(10).index
-        bottom_10 = last_sentiment.nsmallest(10).index
-        
-        valid_longs = [s for s in top_10 if s in weekly_returns.columns and pd.notna(weekly_returns.loc[date, s])]
-        valid_shorts = [s for s in bottom_10 if s in weekly_returns.columns and pd.notna(weekly_returns.loc[date, s])]
-        
-        if not valid_longs or not valid_shorts:
-            portfolio_returns.append(0)
-            continue
-
-        long_return = weekly_returns.loc[date, valid_longs].mean()
-        short_return = weekly_returns.loc[date, valid_shorts].mean()
-        week_return = (long_return - short_return) / 2
-        portfolio_returns.append(week_return if pd.notna(week_return) else 0)
-        
-    results_df = pd.DataFrame({'portfolio_return': portfolio_returns}, index=weekly_returns.index)
-    results_df['cumulative_return'] = (1 + results_df['portfolio_return']).cumprod()
-    return results_df
-
-# ===========================================================================
-# 6. GEMINI API INTEGRATION
+# 5. GEMINI API INTEGRATION
 # ===========================================================================
 
 @st.cache_data
@@ -183,83 +139,63 @@ def get_gemini_summary(sentiment_score):
         return f"Could not generate Gemini summary. Error: {e}"
 
 # ===========================================================================
-# 7. UI COMPONENTS
+# 6. UI COMPONENTS
 # ===========================================================================
 
 def create_fear_greed_gauge(score):
     """Creates a Plotly gauge chart for the sentiment score."""
-    # Convert score from approx [-1, 1] to [0, 100] for the gauge
     gauge_value = (score * 50) + 50
     
     category = "Neutral"
-    color = "#FBBF24" # Yellow
-    if gauge_value > 60:
-        category = "Greed"
-        color = "#22C55E" # Green
-    if gauge_value > 80:
-        category = "Extreme Greed"
-        color = "#16A34A" # Darker Green
-    if gauge_value < 40:
-        category = "Fear"
-        color = "#F97316" # Orange
-    if gauge_value < 20:
-        category = "Extreme Fear"
-        color = "#EF4444" # Red
+    color = "#FBBF24"
+    if gauge_value > 60: category, color = "Greed", "#22C55E"
+    if gauge_value > 80: category, color = "Extreme Greed", "#16A34A"
+    if gauge_value < 40: category, color = "Fear", "#F97316"
+    if gauge_value < 20: category, color = "Extreme Fear", "#EF4444"
 
     fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = gauge_value,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': category, 'font': {'size': 24, 'color': color}},
-        number = {'font': {'size': 48, 'color': "white"}, 'prefix': ""},
-        gauge = {
-            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
-            'bar': {'color': color, 'thickness': 0.3},
-            'bgcolor': "rgba(0,0,0,0)",
-            'borderwidth': 2,
-            'bordercolor': "#374151",
-            'steps': [
-                {'range': [0, 20], 'color': '#EF4444'},
-                {'range': [20, 40], 'color': '#F97316'},
-                {'range': [40, 60], 'color': '#FBBF24'},
-                {'range': [60, 80], 'color': '#22C55E'},
-                {'range': [80, 100], 'color': '#16A34A'}],
-        }))
-    
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        font={'color': "white", 'family': "Arial"},
-        height=250,
-        margin=dict(l=20, r=20, t=50, b=20)
-    )
+        mode="gauge+number", value=gauge_value,
+        title={'text': category, 'font': {'size': 24, 'color': color}},
+        number={'font': {'size': 48, 'color': "white"}},
+        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': color},
+               'steps': [
+                   {'range': [0, 20], 'color': '#EF4444'}, {'range': [20, 40], 'color': '#F97316'},
+                   {'range': [40, 60], 'color': '#FBBF24'}, {'range': [60, 80], 'color': '#22C55E'},
+                   {'range': [80, 100], 'color': '#16A34A'}]}))
+    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", height=250, margin=dict(l=20, r=20, t=50, b=20))
     return fig
 
 # ===========================================================================
-# 8. BUILD THE USER INTERFACE
+# 7. BUILD THE USER INTERFACE
 # ===========================================================================
 
-# --- Custom CSS for a sleeker look ---
+# --- Custom CSS for a professional, dark theme ---
 st.markdown("""
     <style>
-        .main { background-color: #111827; }
-        h1, h2, h3 { color: #F9FAFB; }
+        .main { background-color: #030712; }
+        h1, h2, h3, h4 { color: #F9FAFB; }
         .st-emotion-cache-16txtl3 {
-            background-color: #1F2937;
-            border: 1px solid #374151;
-            border-radius: 0.75rem;
-            padding: 1.5rem;
+            background-color: #111827; border: 1px solid #374151;
+            border-radius: 0.75rem; padding: 1.5rem;
         }
     </style>
 """, unsafe_allow_html=True)
 
-# --- Main App ---
-st.title("CryptoSENTRAL Dashboard")
-st.markdown("A Comprehensive Analysis Dashboard for Cryptocurrency Markets")
+# --- Main App Header ---
+st.markdown("""
+    <div style="text-align: center;">
+        <h1 style="font-size: 3.5rem; font-weight: 800;">
+            Crypto<span style="color: #22D3EE;">SENTRAL</span>
+        </h1>
+        <p style="color: #9CA3AF; font-size: 1.125rem;">A Comprehensive Analysis Dashboard for Cryptocurrency Markets</p>
+    </div>
+""", unsafe_allow_html=True)
+
+st.markdown("---")
 
 # --- Load and Process Data ---
 structured_data, unstructured_data = load_data()
-market_sentiment, asset_sentiment = run_sentiment_pipeline(unstructured_data)
-backtest_results = run_backtest(structured_data, asset_sentiment)
+market_sentiment = run_sentiment_pipeline(unstructured_data)
 
 # --- Display KPIs and Gemini Summary ---
 latest_sentiment_score = market_sentiment.dropna().iloc[-1]
@@ -275,12 +211,22 @@ with col1:
     st.info(gemini_summary)
 
 with col2:
-    st.subheader("Sentiment Strategy Performance")
-    if backtest_results is not None:
-        st.line_chart(backtest_results['cumulative_return'])
-    else:
-        st.info("Performance chart is unavailable because the raw news data does not contain asset-specific symbols needed for the backtest.")
+    st.subheader("Market Sentiment Over Time")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=market_sentiment.index, y=market_sentiment,
+        mode='lines', name='7-Day Avg. Sentiment',
+        line=dict(color='#22D3EE', width=2),
+        fill='tozeroy', fillcolor='rgba(34, 211, 238, 0.1)'
+    ))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=False, color='white'),
+        yaxis=dict(title='VADER Compound Score', gridcolor='#374151', color='white'),
+        legend=dict(font=dict(color='white')), height=400
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
-st.subheader("Data Explorer")
-st.dataframe(structured_data.head())
+st.subheader("Raw News Data Explorer")
+st.dataframe(unstructured_data.head())
