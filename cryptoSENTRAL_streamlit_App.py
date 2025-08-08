@@ -7,14 +7,8 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import requests
-import nltk
+import re
 import plotly.graph_objects as go
-
-try:
-    from nltk.sentiment.vader import SentimentIntensityAnalyzer
-except ImportError:
-    st.error("Required libraries not found. Please ensure your requirements.txt file is correct.")
-    st.stop()
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -24,13 +18,52 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- Add NLTK data path ---
-NLTK_DATA_PATH = Path.cwd() / "nltk_data"
-if NLTK_DATA_PATH.exists():
-    nltk.data.path.append(str(NLTK_DATA_PATH))
+# ===========================================================================
+# 2. EMBEDDED VADER LEXICON AND SENTIMENT LOGIC
+# This section makes the script self-contained and removes the need for NLTK downloads.
+# ===========================================================================
+
+def get_vader_lexicon():
+    """Returns a subset of the VADER sentiment lexicon as a dictionary."""
+    return {
+        'positive': 2.0, 'trust': 1.5, 'good': 1.9, 'great': 3.1, 'excellent': 3.4,
+        'amazing': 4.0, 'fantastic': 4.0, 'love': 3.2, 'like': 2.0, 'happy': 2.7,
+        'pleased': 2.4, 'success': 2.8, 'win': 2.8, 'gain': 2.4, 'profit': 2.2,
+        'up': 1.0, 'increase': 1.5, 'strong': 1.8, 'bullish': 2.9, 'boom': 2.0,
+        'negative': -2.0, 'sad': -2.1, 'bad': -2.5, 'terrible': -3.1, 'horrible': -3.1,
+        'hate': -2.7, 'loss': -2.3, 'fail': -2.4, 'down': -1.0, 'decrease': -1.5,
+        'weak': -1.7, 'bearish': -2.9, 'crash': -3.0, 'risk': -1.5, 'scam': -2.5,
+        'fraud': -2.5, 'hack': -2.0, 'stolen': -2.2, 'illegal': -2.6, 'ban': -2.6,
+        'fear': -1.7, 'uncertainty': -1.4, 'doubt': -1.1, 'fud': -2.0, 'hodl': 0.5,
+        'moon': 2.5, 'diamond hands': 2.0, 'paper hands': -1.5, 'shill': -1.0,
+        'not': -1, 'no': -1, 'never': -1,
+    }
+
+def get_simple_vader_score(text: str, lexicon: dict) -> float:
+    """
+    A simplified VADER-style sentiment scoring function using an embedded lexicon.
+    """
+    if not isinstance(text, str):
+        return 0.0
+    
+    words = text.lower().split()
+    score = 0.0
+    
+    for i, word in enumerate(words):
+        word_score = lexicon.get(word, 0.0)
+        # Simple negation check (looks at the previous word)
+        if i > 0 and words[i-1] in ['not', 'no', 'never']:
+            word_score *= -0.74
+        score += word_score
+        
+    # Simple normalization
+    if score != 0:
+        score = score / np.sqrt((score * score) + 15)
+        
+    return score
 
 # ===========================================================================
-# 2. DATA LOADING AND CACHING
+# 3. DATA LOADING AND CACHING
 # ===========================================================================
 
 @st.cache_data
@@ -48,27 +81,19 @@ def load_data():
     return structured_df, unstructured_df
 
 # ===========================================================================
-# 3. STATION 3: SENTIMENT ANALYSIS (Cached)
+# 4. STATION 3: SENTIMENT ANALYSIS (Cached)
 # ===========================================================================
 
 @st.cache_data
 def run_sentiment_pipeline(unstructured_df):
-    """Runs VADER analysis and constructs sentiment indices."""
-    try:
-        vader_analyzer = SentimentIntensityAnalyzer()
-    except LookupError:
-        st.error("VADER lexicon not found. Please ensure the 'nltk_data/sentiment/vader_lexicon.zip' file is in your GitHub repository.")
-        st.stop()
-
-    def get_vader_scores(text):
-        if not isinstance(text, str): return {'compound': 0.0}
-        return vader_analyzer.polarity_scores(text)
-
-    sentiment_scores = unstructured_df['normalized_text'].apply(get_vader_scores)
-    sentiment_df = pd.json_normalize(sentiment_scores)
-    news_with_sentiment = pd.concat([unstructured_df.reset_index(drop=True), sentiment_df], axis=1)
+    """Runs sentiment analysis and constructs sentiment indices."""
+    st.info("Running sentiment analysis on news data...")
+    lexicon = get_vader_lexicon()
     
-    df = news_with_sentiment.copy()
+    # Use the simplified, self-contained VADER scoring function
+    unstructured_df['compound'] = unstructured_df['normalized_text'].apply(lambda x: get_simple_vader_score(x, lexicon))
+    
+    df = unstructured_df.copy()
     df['date'] = pd.to_datetime(df['date'])
     market_sentiment = df.set_index('date')['compound'].resample('D').mean().rolling(window=7, min_periods=1).mean()
     market_sentiment.name = "market_sentiment_7d"
@@ -85,7 +110,7 @@ def run_sentiment_pipeline(unstructured_df):
     return market_sentiment, asset_sentiment
 
 # ===========================================================================
-# 4. STATION 4: BACKTESTING (Cached)
+# 5. STATION 4: BACKTESTING (Cached)
 # ===========================================================================
 
 @st.cache_data
@@ -128,7 +153,7 @@ def run_backtest(structured_df, asset_sentiment):
     return results_df
 
 # ===========================================================================
-# 5. GEMINI API INTEGRATION
+# 6. GEMINI API INTEGRATION
 # ===========================================================================
 
 @st.cache_data
@@ -142,8 +167,8 @@ def get_gemini_summary(sentiment_score):
     if not api_key: return "Error: Gemini API key is not set in Streamlit secrets."
 
     sentiment_category = "Neutral"
-    if sentiment_score > 0.1: sentiment_category = "Positive"
-    if sentiment_score < -0.1: sentiment_category = "Negative"
+    if sentiment_score > 0.05: sentiment_category = "Positive"
+    if sentiment_score < -0.05: sentiment_category = "Negative"
 
     prompt = f"You are an expert financial analyst for a cryptocurrency investment platform called CryptoSENTRAL. The platform's overall market sentiment index, based on recent news, is currently showing a score of {sentiment_score:.3f}, which is '{sentiment_category}'. Write a concise, professional summary (2-3 sentences) for clients explaining what this sentiment level means for the market."
     
@@ -158,13 +183,13 @@ def get_gemini_summary(sentiment_score):
         return f"Could not generate Gemini summary. Error: {e}"
 
 # ===========================================================================
-# 6. UI COMPONENTS
+# 7. UI COMPONENTS
 # ===========================================================================
 
 def create_fear_greed_gauge(score):
     """Creates a Plotly gauge chart for the sentiment score."""
-    # Convert score from [-1, 1] to [0, 100] for the gauge
-    gauge_value = (score + 1) * 50
+    # Convert score from approx [-1, 1] to [0, 100] for the gauge
+    gauge_value = (score * 50) + 50
     
     category = "Neutral"
     color = "#FBBF24" # Yellow
@@ -210,24 +235,14 @@ def create_fear_greed_gauge(score):
     return fig
 
 # ===========================================================================
-# 7. BUILD THE USER INTERFACE
+# 8. BUILD THE USER INTERFACE
 # ===========================================================================
 
 # --- Custom CSS for a sleeker look ---
 st.markdown("""
     <style>
-        .main {
-            background-color: #111827;
-        }
-        .st-emotion-cache-1y4p8pa {
-            padding-top: 2rem;
-        }
-        .st-emotion-cache-z5fcl4 {
-            padding-top: 2rem;
-        }
-        h1, h2, h3 {
-            color: #F9FAFB;
-        }
+        .main { background-color: #111827; }
+        h1, h2, h3 { color: #F9FAFB; }
         .st-emotion-cache-16txtl3 {
             background-color: #1F2937;
             border: 1px solid #374151;
