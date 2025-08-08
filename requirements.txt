@@ -1,8 +1,0 @@
-pandas
-numpy
-requests
-nltk
-streamlit
-plotly
-PyPortfolioOpt
-scikit-learn
