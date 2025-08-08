@@ -7,3 +7,4 @@ seaborn
 tqdm
 streamlit
 plotly
+PyPortfolioOpt
