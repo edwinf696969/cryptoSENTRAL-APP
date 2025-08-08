@@ -1,6 +1,6 @@
 # ===========================================================================
 # 1. IMPORT LIBRARIES AND INITIAL SETUP
-
+# ===========================================================================
 import logging
 import json
 from pathlib import Path
@@ -28,7 +28,12 @@ st.set_page_config(
 
 # --- Add NLTK data path ---
 # This tells NLTK to look for data in the 'nltk_data' folder in the repository
-nltk.data.path.append(str(Path.cwd() / "nltk_data"))
+NLTK_DATA_PATH = Path.cwd() / "nltk_data"
+if NLTK_DATA_PATH.exists():
+    nltk.data.path.append(str(NLTK_DATA_PATH))
+else:
+    st.error("The 'nltk_data' folder was not found in the GitHub repository. Please ensure it has been uploaded correctly.")
+    st.stop()
 
 
 # ===========================================================================
@@ -57,10 +62,16 @@ def load_data():
 def run_sentiment_pipeline(unstructured_df):
     """Runs VADER analysis and constructs sentiment indices."""
     
+    # Explicitly check for the vader_lexicon file
+    vader_path = NLTK_DATA_PATH / "sentiment" / "vader_lexicon.zip"
+    if not vader_path.exists():
+        st.error(f"VADER lexicon not found at the expected path: {vader_path}. Please ensure the 'nltk_data/sentiment/vader_lexicon.zip' file is in your GitHub repository.")
+        st.stop()
+
     try:
         vader_analyzer = SentimentIntensityAnalyzer()
     except LookupError:
-        st.error("VADER lexicon not found. Please ensure the 'nltk_data/sentiment/vader_lexicon.zip' file is in your GitHub repository.")
+        st.error("NLTK could not find the VADER lexicon, even though the path was added. Please check the file integrity in your GitHub repository.")
         st.stop()
 
     def get_vader_scores(text):
@@ -95,7 +106,7 @@ def run_sentiment_pipeline(unstructured_df):
 def run_backtest(structured_df, asset_sentiment):
     """Runs the sentiment-driven backtest."""
     if asset_sentiment.empty:
-        st.warning("Asset-specific sentiment data not available (missing 'symbols' column in news file). Backtest cannot be run.")
+        # This is not an error, but an expected outcome if symbols are missing
         return None
 
     weekly_returns = structured_df.pivot_table(index='date', columns='symbol', values='return')
