@@ -5,12 +5,17 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 import plotly.express as px
-from pypfopt import EfficientFrontier, risk_models, expected_returns
+
+try:
+    from pypfopt import EfficientFrontier, risk_models, expected_returns
+except ImportError:
+    st.error("PyPortfolioOpt library not found. Please ensure it is in your requirements.txt file.")
+    st.stop()
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="CryptoSENTRAL | Portfolio Builder",
-    page_icon="🛠️",
+    page_title="CryptoSENTRAL | Recommendations",
+    page_icon="⚖️",
     layout="wide",
 )
 
@@ -31,30 +36,41 @@ def load_structured_data():
 # 3. PORTFOLIO OPTIMIZATION LOGIC
 # ===========================================================================
 
-def optimize_portfolio(df, selected_assets):
+def optimize_portfolio(df, selected_assets, model_choice):
     """
-    Performs Mean-Variance Optimization to find the portfolio with the max Sharpe ratio.
+    Performs portfolio optimization based on the user's selected model.
     """
     if len(selected_assets) < 2:
         return None, None
 
     # Filter for selected assets and pivot to get weekly returns in wide format
     returns_wide = df[df['symbol'].isin(selected_assets)].pivot(index='date', columns='symbol', values='return')
-    returns_wide = returns_wide.dropna()
+    
+    # Drop assets with too much missing data for robust calculation
+    returns_wide.dropna(axis=1, thresh=len(returns_wide) * 0.9, inplace=True)
+    returns_wide.fillna(0, inplace=True) # Fill remaining NaNs with 0
 
-    if returns_wide.empty or len(returns_wide) < 60: # Need sufficient data for stable calculation
+    if returns_wide.empty or len(returns_wide.columns) < 2:
         return None, None
 
     # Calculate expected returns and sample covariance matrix
     mu = expected_returns.mean_historical_return(returns_wide)
     S = risk_models.sample_cov(returns_wide)
 
-    # Optimize for the maximal Sharpe ratio
+    # Instantiate the Efficient Frontier object
     ef = EfficientFrontier(mu, S)
-    weights = ef.max_sharpe()
-    cleaned_weights = ef.clean_weights()
     
+    # Run the selected optimization model
+    if model_choice == "Maximize Sharpe Ratio":
+        weights = ef.max_sharpe()
+    elif model_choice == "Minimize Volatility":
+        weights = ef.min_volatility()
+    else: # Fallback to max sharpe
+        weights = ef.max_sharpe()
+
+    cleaned_weights = ef.clean_weights()
     performance = ef.portfolio_performance(verbose=False)
+    
     return cleaned_weights, performance
 
 # ===========================================================================
@@ -62,35 +78,40 @@ def optimize_portfolio(df, selected_assets):
 # ===========================================================================
 
 st.markdown("""<style>.main { background-color: #030712; } h1, h2, h3, h4 { color: #F9FAFB; } .st-emotion-cache-16txtl3 { background-color: #111827; border: 1px solid #374151; border-radius: 0.75rem; padding: 1.5rem; }</style>""", unsafe_allow_html=True)
-st.title("🛠️ Build My Portfolio")
+st.title("⚖️ Portfolio Recommendations")
 st.markdown("---")
 
 # --- Load Data ---
 structured_data = load_structured_data()
-# Get a list of assets with the most data for reliability
+# Get a list of assets with a substantial amount of data for reliability
 asset_counts = structured_data['symbol'].value_counts()
 reliable_assets = asset_counts[asset_counts > 100].index.tolist()
 available_assets = sorted(reliable_assets)
 
-
 # --- User Input Section ---
-st.subheader("1. Select Your Assets")
+st.subheader("1. Select Your Asset Universe")
 selected_assets = st.multiselect(
-    "Choose at least two assets for your portfolio:",
+    "Choose the assets to include in the optimization:",
     available_assets,
-    default=['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX']
+    default=['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'LINK', 'MATIC']
+)
+
+st.subheader("2. Choose Your Optimization Model")
+model_choice = st.selectbox(
+    "Select the portfolio optimization strategy:",
+    ("Maximize Sharpe Ratio", "Minimize Volatility")
 )
 
 if len(selected_assets) < 2:
     st.warning("Please select at least two assets to build an optimized portfolio.")
 else:
-    st.subheader("2. Run Optimization")
-    if st.button("✨ Optimize My Portfolio"):
+    st.subheader("3. Generate Recommendation")
+    if st.button("✨ Generate Optimal Portfolio"):
         with st.spinner("Calculating optimal weights based on historical risk and return..."):
-            weights, performance = optimize_portfolio(structured_data, selected_assets)
+            weights, performance = optimize_portfolio(structured_data, selected_assets, model_choice)
         
         if weights:
-            st.subheader("3. Optimized Portfolio Allocation (Max Sharpe Ratio)")
+            st.subheader("4. Optimized Portfolio Allocation")
             
             weights_df = pd.DataFrame.from_dict(weights, orient='index', columns=['Weight'])
             weights_df.index.name = 'Asset'
@@ -105,7 +126,7 @@ else:
             with col2:
                 fig = px.pie(
                     weights_df, values='Weight', names=weights_df.index,
-                    title='Optimized Portfolio Allocation', hole=.3
+                    title=f'Optimized Allocation ({model_choice})', hole=.3
                 )
                 fig.update_traces(textposition='inside', textinfo='percent+label')
                 fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font_color="white")
