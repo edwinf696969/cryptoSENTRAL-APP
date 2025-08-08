@@ -20,6 +20,7 @@ st.set_page_config(
 @st.cache_data
 def load_structured_data():
     """Loads the clean structured data from Part A."""
+    # The script looks for the data file in the root directory of the repository
     structured_path = Path.cwd() / "stage_2_structured_features.csv"
     if not structured_path.exists():
         st.error("Data file 'stage_2_structured_features.csv' not found. Please ensure it's in the root of your GitHub repository.")
@@ -32,6 +33,7 @@ def load_structured_data():
 
 def plot_momentum_bar_chart(df):
     """Creates an interactive bar chart for token momentum."""
+    # Check if required columns exist
     required_cols = ['symbol', 'date', 'volume_usd', 'momentum_14d', 'momentum_42d']
     if not all(col in df.columns for col in required_cols):
         st.error("Momentum data is missing from the input file. Please ensure the Part A script ran successfully and generated the 'momentum_14d' and 'momentum_42d' columns.")
@@ -41,6 +43,7 @@ def plot_momentum_bar_chart(df):
     top_symbols = latest_data.nlargest(12, 'volume_usd')['symbol']
     plot_df = latest_data[latest_data['symbol'].isin(top_symbols)]
 
+    # Melt the dataframe to have a long format for Plotly Express
     plot_df_melted = plot_df.melt(
         id_vars='symbol',
         value_vars=['momentum_14d', 'momentum_42d'],
@@ -60,6 +63,7 @@ def plot_momentum_bar_chart(df):
 
 def plot_rolling_volatility(df):
     """Creates an interactive line chart for rolling volatility."""
+    # Check if required columns exist
     required_cols = ['symbol', 'date', 'volume_usd', 'volatility_28d']
     if not all(col in df.columns for col in required_cols):
         st.error("Volatility data is missing from the input file. Please ensure the Part A script ran successfully and generated the 'volatility_28d' column.")
@@ -78,6 +82,7 @@ def plot_rolling_volatility(df):
 
 def plot_correlation_matrix(df):
     """Creates an interactive heatmap for the token correlation matrix."""
+    # Check if required columns exist
     required_cols = ['date', 'symbol', 'return', 'volume_usd']
     if not all(col in df.columns for col in required_cols):
         st.error("Return data is missing from the input file, which is needed for the correlation matrix.")
