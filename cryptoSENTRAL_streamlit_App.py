@@ -144,36 +144,73 @@ def create_fear_greed_gauge(score):
 # ===========================================================================
 # 7. BUILD THE USER INTERFACE
 # ===========================================================================
-st.markdown("""<style>.main { background-color: #030712; } h1, h2, h3, h4 { color: #F9FAFB; } .st-emotion-cache-16txtl3 { background-color: #111827; border: 1px solid #374151; border-radius: 0.75rem; padding: 1.5rem; }</style>""", unsafe_allow_html=True)
-st.markdown("""<div style="text-align: center;"><h1 style="font-size: 3.5rem; font-weight: 800;">Crypto<span style="color: #22D3EE;">SENTRAL</span></h1><p style="color: #9CA3AF; font-size: 1.125rem;">A Comprehensive Analysis Dashboard for Cryptocurrency Markets</p></div>""", unsafe_allow_html=True)
-st.markdown("---")
+# --- Custom CSS for a professional, dark theme ---
+st.markdown("""
+    <style>
+        .main { background-color: #030712; }
+        h1, h2, h3, h4 { color: #F9FAFB; }
+        /* Style for the cards */
+        .card {
+            background-color: #111827; 
+            border: 1px solid #374151;
+            border-radius: 0.75rem; 
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
+# --- Main App Header ---
+st.markdown("""
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h1 style="font-size: 3.5rem; font-weight: 800;">
+            Crypto<span style="color: #22D3EE;">SENTRAL</span>
+        </h1>
+        <p style="color: #9CA3AF; font-size: 1.125rem;">A Comprehensive Analysis Dashboard for Cryptocurrency Markets</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- Load and Process Data ---
 structured_data, unstructured_data = load_data()
 market_sentiment = run_sentiment_pipeline(unstructured_data)
 
+# --- Display KPIs and Gemini Summary ---
 latest_sentiment_score = market_sentiment.dropna().iloc[-1]
 gemini_summary = get_gemini_summary(latest_sentiment_score)
 
 col1, col2 = st.columns([1, 2])
+
 with col1:
-    st.subheader("Market Sentiment Gauge")
-    st.plotly_chart(create_fear_greed_gauge(latest_sentiment_score), use_container_width=True)
-    st.subheader("Gemini Analyst Summary")
-    st.info(gemini_summary)
+    with st.container():
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Market Sentiment Gauge")
+        st.plotly_chart(create_fear_greed_gauge(latest_sentiment_score), use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with st.container():
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Gemini Analyst Summary")
+        st.info(gemini_summary)
+        st.markdown('</div>', unsafe_allow_html=True)
+
 with col2:
-    st.subheader("Market Sentiment Over Time")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=market_sentiment.index, y=market_sentiment, mode='lines', name='7-Day Avg. Sentiment',
-        line=dict(color='#22D3EE', width=2), fill='tozeroy', fillcolor='rgba(34, 211, 238, 0.1)'
-    ))
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(showgrid=False, color='white'),
-        yaxis=dict(title='VADER Compound Score', gridcolor='#374151', color='white'),
-        legend=dict(font=dict(color='white')), height=400
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    with st.container():
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Market Sentiment Over Time")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=market_sentiment.index, y=market_sentiment, mode='lines', name='7-Day Avg. Sentiment',
+            line=dict(color='#22D3EE', width=2), fill='tozeroy', fillcolor='rgba(34, 211, 238, 0.1)'
+        ))
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(showgrid=False, color='white'),
+            yaxis=dict(title='VADER Compound Score', gridcolor='#374151', color='white'),
+            legend=dict(font=dict(color='white')), height=400
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
 st.markdown("---")
 st.subheader("Raw News Data Explorer")
 st.dataframe(unstructured_data.head())
