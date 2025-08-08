@@ -2,9 +2,6 @@ pandas
 numpy
 requests
 nltk
-matplotlib
-seaborn
-tqdm
 streamlit
 plotly
 PyPortfolioOpt
